@@ -594,7 +594,7 @@ function compute(){
   }
   if(curY!==null) snaps[curY]=clone(pos);
   const expired=[]; const hoje=new Date().toISOString().slice(0,10);
-  for(const [id,p] of Object.entries(pos)){ if(p.tipo==="opcao" && Math.abs(p.q)>1e-9 && p.prazo){ const v=optExpiry(p.prazo); if(v && v<hoje) expired.push({id,q:p.q,cost:p.cost,date:v,espec:p.espec}); } }
+  for(const [id,p] of Object.entries(pos)){ if(p.tipo==="opcao" && Math.abs(p.q)>1e-9 && p.prazo){ const v=optExpiry(p.prazo,id); if(v && v<hoje) expired.push({id,q:p.q,cost:p.cost,date:v,espec:p.espec}); } }
   const prej={comum:num(S.prej.comum),dt:num(S.prej.dt),fii:num(S.prej.fii)};
   let acc=0, irrfS=0, lastY=null; const years={};
   for(const ym of Object.keys(months).sort()){
@@ -618,7 +618,8 @@ function compute(){
   }
   return {months,snaps,initialSnap,warnings,years,expired};
 }
-function optExpiry(prazo){ const m=String(prazo).match(/^(\d{2})\/(\d{2})$/); if(!m) return null; const mo=+m[1]-1, y=2000+(+m[2]); const d=new Date(y,mo,1); const add=(5-d.getDay()+7)%7; d.setDate(1+add+14); return `${y}-${String(mo+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+function optExpiry(prazo,ticker){ const m=String(prazo).match(/^(\d{2})\/(\d{2})$/); if(!m) return null; const mo=+m[1]-1, y=2000+(+m[2]); const d=new Date(y,mo,1); const add=(5-d.getDay()+7)%7;
+  const w=String(ticker||"").toUpperCase().match(/W([1-5])$/); d.setDate(1+add+7*((w?+w[1]:3)-1)); if(d.getMonth()!==mo) d.setDate(d.getDate()-7); return `${y}-${String(mo+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function snapAt(y){ if(R.snaps[y]) return R.snaps[y]; const ys=Object.keys(R.snaps).map(Number).filter(v=>v<y).sort((a,b)=>b-a); return ys.length? R.snaps[ys[0]] : R.initialSnap; }
 function vencimento(ym){ let [y,m]=ym.split("-").map(Number); m+=1; if(m>12){m=1;y++;} const d=new Date(y,m,0); while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1); return d.toLocaleDateString("pt-BR"); }
 
