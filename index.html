@@ -93,6 +93,22 @@ input.txt{width:100%}
 .fsbar code{font-size:.85em;background:var(--soft);padding:1px 5px;border-radius:3px}
 .pwform{flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .pwform p{flex-basis:100%}
+.stub.pago{background:var(--soft)}
+.stub.pago .val{color:var(--muted);text-decoration:line-through}
+.stub.vencido{background:var(--red-bg)}
+.stub.vencido .val{color:var(--red)}
+.pagto{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:12px;padding:12px;border:1px dashed var(--rule);border-radius:6px}
+.pagto label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;font-weight:600;color:var(--muted)}
+.pagto input{width:130px}
+table.decl td,table.decl th{white-space:nowrap}
+table.decl td:first-child,table.decl th:first-child{position:sticky;left:0;background:var(--card);z-index:1;white-space:normal;min-width:230px}
+table.decl tr.sec td{font-weight:800;background:var(--soft);color:var(--ink)}
+table.decl tr.sec td:first-child{background:var(--soft)}
+table.decl tr.dig td{font-weight:700}
+table.decl tr.dig td:first-child::after{content:" ✎";color:var(--green)}
+.exform{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:10px 0}
+.exform label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;font-weight:600;color:var(--muted)}
+.exform input{width:120px}
 .carne-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:10px;flex-wrap:wrap}
 .carne-head h2{font-size:1.1rem;font-weight:700}
 .carne-head span{color:var(--muted)}
@@ -208,6 +224,8 @@ footer p{margin:0;max-width:80ch}
   <nav class="tabs" role="tablist">
     <button role="tab" data-tab="notas" aria-selected="true">Notas de corretagem</button>
     <button role="tab" data-tab="apuracao" aria-selected="false">Apuração mensal</button>
+    <button role="tab" data-tab="posicoes" aria-selected="false">Posições</button>
+    <button role="tab" data-tab="declaracao" aria-selected="false">Declaração</button>
     <button role="tab" data-tab="carteira" aria-selected="false">Bens e direitos</button>
     <button role="tab" data-tab="ajustes" aria-selected="false">Ajustes</button>
   </nav>
@@ -233,6 +251,8 @@ footer p{margin:0;max-width:80ch}
     </section>
 
     <section class="panel" id="p-apuracao" hidden></section>
+    <section class="panel" id="p-posicoes" hidden></section>
+    <section class="panel" id="p-declaracao" hidden></section>
     <section class="panel" id="p-carteira" hidden></section>
     <section class="panel" id="p-ajustes" hidden></section>
   </main>
@@ -267,7 +287,8 @@ const cls=v=>v>0.004?"pos":v<-0.004?"neg":"mut";
 const $=s=>document.querySelector(s);
 
 /* ---------- estado ---------- */
-let S={notes:[],assets:{},inicial:[],prej:{comum:0,dt:0,fii:0}};
+let S={notes:[],assets:{},inicial:[],prej:{comum:0,dt:0,fii:0},pagos:{}};
+const exForm={};
 let R=null; let year=new Date().getFullYear(); let selMonth=null; let tab="notas";
 const openNotes=new Set();
 
@@ -283,7 +304,7 @@ async function deriveKey(pw,salt,iter){ const base=await crypto.subtle.importKey
 async function encryptObj(obj,key,salt){ const iv=crypto.getRandomValues(new Uint8Array(12)); const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,new TextEncoder().encode(JSON.stringify(obj))); return {app:"ir-b3",versao:3,cifrado:true,kdf:"PBKDF2-SHA256",iter:ITER,salt:b64(salt),iv:b64(iv),salvoEm:new Date().toISOString(),dados:b64(new Uint8Array(ct))}; }
 async function decryptWithKey(f,key){ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(f.iv)},key,unb64(f.dados)); return JSON.parse(new TextDecoder().decode(pt)); }
 async function decryptObj(f,pw){ const salt=unb64(f.salt); const key=await deriveKey(pw,salt,f.iter); return {obj:await decryptWithKey(f,key),key,salt}; }
-const EMPTY=()=>({notes:[],assets:{},inicial:[],prej:{comum:0,dt:0,fii:0}});
+const EMPTY=()=>({notes:[],assets:{},inicial:[],prej:{comum:0,dt:0,fii:0},pagos:{}});
 
 const Store={state:"init",token:null,tokenExp:0,fileId:null,known:null,key:null,salt:null,locked:null,folder:null,t:null,dirty:false,pwForm:false,busy:false,
   boot(){
@@ -395,13 +416,14 @@ const Store={state:"init",token:null,tokenExp:0,fileId:null,known:null,key:null,
   saveCfg(){ this.save(); }, saveNote(){ this.save(); }, delNote(){ this.save(); }
 };
 window.addEventListener("beforeunload",e=>{ if(Store.dirty){ e.preventDefault(); e.returnValue=""; } });
-const cfgObj=()=>({assets:S.assets,inicial:S.inicial,prej:S.prej});
+const cfgObj=()=>({assets:S.assets,inicial:S.inicial,prej:S.prej,pagos:S.pagos});
 const dataObj=()=>({...cfgObj(),notes:S.notes});
 function applyData(o){
   if(!o) return 0;
   S.assets={...S.assets,...(o.assets||{})};
   if(o.inicial&&o.inicial.length) S.inicial=o.inicial;
   if(o.prej) S.prej=o.prej;
+  S.pagos={...(S.pagos||{}),...(o.pagos||{})};
   const fileNotes=o.notes||[]; const extra=S.notes.filter(n=>!fileNotes.some(x=>x.id===n.id));
   S.notes=[...fileNotes,...extra];
   const ys=S.notes.map(n=>+String(n.data).slice(0,4)).filter(Boolean); if(ys.length) year=Math.max(...ys);
@@ -551,7 +573,7 @@ function compute(){
   for(const p of S.inicial){ const id=String(p.ticker||"").toUpperCase().trim(); if(!id) continue; const q=qnum(p.qtd); pos[id]={q,cost:q*num(p.pm),tipo:p.tipo||"acao",label:id}; }
   const initialSnap=clone(pos);
   const days={}, months={};
-  const M=ym=>months[ym]||(months[ym]={vendasAcoes:0,acao:0,outros:0,dt:0,fii:0,rf:0,irrf:0,irrfDT:0,custos:0,ops:[]});
+  const M=ym=>months[ym]||(months[ym]={mk:{vc:0,oc:0,vd:0,od:0},vendasAcoes:0,acao:0,outros:0,dt:0,fii:0,rf:0,irrf:0,irrfDT:0,custos:0,ops:[]});
   for(const n of S.notes){
     if(!n.data) continue; const m=M(n.data.slice(0,7));
     const total=n.trades.reduce((s,t)=>s+(+t.valor||0),0), cost=noteCost(n);
@@ -582,8 +604,8 @@ function compute(){
         dt=Math.min(g.Bq,g.Sq); pb=g.Bq?g.Bc/g.Bq:0; ps=g.Sq?g.Sn/g.Sq:0;
         rbq=g.Bq-dt; rbc=rbq*pb; rsq=g.Sq-dt; rsn=rsq*ps; rsg=g.Sq?rsq*g.Sg/g.Sq:0;
       }
-      if(dt>0){ const r=dt*(ps-pb); if(g.tipo==="fii") m.fii+=r; else if(g.tipo==="etfrf") m.rf+=r; else m.dt+=r; m.ops.push({date,id,kind:"Day trade",q:dt,pm:pb,pv:ps,r,tipo:g.tipo}); }
-      const book=(r,q,pm,pv)=>{ if(g.tipo==="acao") m.acao+=r; else if(g.tipo==="fii") m.fii+=r; else if(g.tipo==="etfrf") m.rf+=r; else m.outros+=r; m.ops.push({date,id,kind:"Comum",q,pm,pv,r,tipo:g.tipo}); };
+      if(dt>0){ const r=dt*(ps-pb); if(g.tipo==="fii") m.fii+=r; else if(g.tipo==="etfrf") m.rf+=r; else { m.dt+=r; if(g.tipo==="opcao") m.mk.od+=r; else m.mk.vd+=r; } m.ops.push({date,id,kind:"Day trade",q:dt,pm:pb,pv:ps,r,tipo:g.tipo}); }
+      const book=(r,q,pm,pv)=>{ if(g.tipo==="acao") m.acao+=r; else if(g.tipo==="fii") m.fii+=r; else if(g.tipo==="etfrf") m.rf+=r; else { m.outros+=r; if(g.tipo==="opcao") m.mk.oc+=r; else m.mk.vc+=r; } m.ops.push({date,id,kind:"Comum",q,pm,pv,r,tipo:g.tipo}); };
       const doBuy=()=>{ let q=rbq; if(q<=0) return; const u=rbc/rbq;
         if(p.q<0){ const c=Math.min(q,-p.q), avgS=p.cost/(-p.q); book(c*(avgS-u),c,u,avgS); p.cost-=avgS*c; p.q+=c; q-=c; if(p.q>-1e-9){p.q=0;p.cost=0;} }
         if(q>0){ p.q+=q; p.cost+=q*u; } };
@@ -608,6 +630,7 @@ function compute(){
     m.exempt=m.vendasAcoes<=20000;
     m.isento=m.exempt&&m.acao>0?m.acao:0;
     m.res={comum:m.outros+(m.isento?0:m.acao),dt:m.dt,fii:m.fii};
+    m.mk.vc+=(m.isento?0:m.acao);
     m.base={}; m.comp={};
     for(const c of ["comum","dt","fii"]){ const r=m.res[c]; if(r>0){ const comp=Math.min(r,prej[c]); m.comp[c]=comp; m.base[c]=r-comp; prej[c]-=comp; } else { m.comp[c]=0; m.base[c]=0; prej[c]+=-r; } }
     m.prejApos={...prej};
@@ -619,11 +642,15 @@ function compute(){
     Y.isento+=m.isento; Y.darf+=m.darf; Y.imposto+=m.imposto; Y.irrf+=m.irrf+m.irrfDT; Y.custos+=m.custos; Y.vendas+=m.vendasAcoes;
     Y.prej={...prej}; Y.acum=acc;
   }
-  return {months,snaps,initialSnap,warnings,years,expired};
+  const posNow=clone(pos);
+  return {months,snaps,initialSnap,warnings,years,expired,posNow};
 }
 function optExpiry(prazo,ticker){ const m=String(prazo).match(/^(\d{2})\/(\d{2})$/); if(!m) return null; const mo=+m[1]-1, y=2000+(+m[2]); const d=new Date(y,mo,1); const add=(5-d.getDay()+7)%7;
   const w=String(ticker||"").toUpperCase().match(/\d(?:E)?W([1-5])\b|\dW([1-5])E?\b/); const wk=w?+(w[1]||w[2]):0; d.setDate(1+add+7*((wk||3)-1)); if(d.getMonth()!==mo) d.setDate(d.getDate()-7); return `${y}-${String(mo+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function snapAt(y){ if(R.snaps[y]) return R.snaps[y]; const ys=Object.keys(R.snaps).map(Number).filter(v=>v<y).sort((a,b)=>b-a); return ys.length? R.snaps[ys[0]] : R.initialSnap; }
+function vencIso(ym){ let [y,m]=ym.split("-").map(Number); m+=1; if(m>12){m=1;y++;} const d=new Date(y,m,0); while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+const hojeIso=()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const pagoDe=ym=>{ const p=(S.pagos||{})[ym]; return p&&p.data?p:null; };
 function vencimento(ym){ let [y,m]=ym.split("-").map(Number); m+=1; if(m>12){m=1;y++;} const d=new Date(y,m,0); while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1); return d.toLocaleDateString("pt-BR"); }
 
 /* ---------- renderização ---------- */
@@ -632,6 +659,8 @@ function refresh(except){
   renderYears(); renderCarne();
   if(except!=="apuracao") renderApuracao();
   if(except!=="carteira") renderCarteira();
+  if(except!=="posicoes") renderPosicoes();
+  if(except!=="declaracao") renderDeclaracao();
   if(except!=="ajustes") renderAjustes();
   if(except!=="notas") renderNotas();
 }
@@ -648,7 +677,10 @@ function renderCarne(){
     let c="vazio",val="—",st="Sem operações";
     if(m){
       const res=m.res.comum+m.res.dt+m.res.fii;
-      if(m.darf>0){ c="pagar"; val=brl(m.darf); st="Pagar até "+vencimento(ym); }
+      const pg=pagoDe(ym);
+      if(m.darf>0 && pg){ c="pago"; val=brl(m.darf); st="Pago em "+fmtDate(pg.data); }
+      else if(m.darf>0 && vencIso(ym)<hojeIso()){ c="vencido"; val=brl(m.darf); st="Vencido em "+vencimento(ym)+". Pague no Sicalc"; }
+      else if(m.darf>0){ c="pagar"; val=brl(m.darf); st="Pagar até "+vencimento(ym); }
       else if(m.acumulado>0 && m.imposto+m.acumAnterior>0){ c=""; val=brl(0); st=`Abaixo de R$ 10, acumula ${brl(m.acumulado)}`; }
       else if(m.isento>0 && res<=0.004){ c=""; val="Isento"; st="Lucro isento "+brl(m.isento); }
       else if(m.isento>0){ c=""; val=brl(0); st="Lucro isento "+brl(m.isento); }
@@ -708,6 +740,8 @@ function renderApuracao(){
   const yms=Object.keys(R.months).filter(k=>k.startsWith(year+"-")).sort();
   if(!yms.length){ el.innerHTML=`<div class="empty">Sem operações em ${year}. Importe notas ou escolha outro ano.</div>`; return; }
   if(!selMonth || !R.months[selMonth] || !selMonth.startsWith(year+"-")) selMonth=yms.find(k=>R.months[k].darf>0)||yms[yms.length-1];
+  const atrasados=Object.keys(R.months).filter(k=>R.months[k].darf>0 && !pagoDe(k) && vencIso(k)<hojeIso()).sort();
+  const atrasoBox=atrasados.length?`<div class="warns" style="background:var(--red-bg);color:var(--red)"><b>DARF vencido sem pagamento registrado</b><ul>${atrasados.map(k=>`<li>${MESES_L[+k.slice(5)-1]} de ${k.slice(0,4)}: ${brl(R.months[k].darf)}, venceu em ${vencimento(k)}. Gere o DARF atualizado no Sicalc (código 6015, período de apuração ${fmtDate(k+"-01").slice(3)}) e registre o pagamento aqui.</li>`).join("")}</ul></div>`:"";
   const warn=R.warnings.length?`<div class="warns"><b>Confira antes de usar os números</b><ul>${R.warnings.slice(0,8).map(w=>`<li>${esc(w)}</li>`).join("")}${R.warnings.length>8?`<li>e mais ${R.warnings.length-8} aviso(s)</li>`:""}</ul></div>`:"";
   const expBox=R.expired.length?`<div class="warns"><b>Opções vencidas ainda em carteira</b><ul>${R.expired.map(x=>`<li>${x.q>0?`${qf(x.q)} ${esc(x.id)} compradas venceram em ${fmtDate(x.date)} (custo ${brl(x.cost)}). Se viraram pó, registre o vencimento para lançar o prejuízo.`:`${qf(-x.q)} ${esc(x.id)} vendidas (lançadas) venceram em ${fmtDate(x.date)} (prêmio ${brl(x.cost)}). Se não foram exercidas, registre o vencimento para lançar o ganho.`} Se houve exercício, lance a compra ou venda da ação como nota manual. <button class="btn sm" data-act="expire" data-id="${esc(x.id)}">Registrar vencimento sem exercício</button></li>`).join("")}</ul></div>`:"";
   const m=R.months[selMonth], [yy,mm]=selMonth.split("-");
@@ -731,7 +765,11 @@ function renderApuracao(){
         ${m.acumAnterior?lg("Saldo de meses anteriores (< R$ 10)",brl(m.acumAnterior)):""}
         <tr class="tot"><td>DARF 6015</td><td>${brl(m.darf)}</td></tr>
       </table>
-      <p class="breakdown">${m.darf>0?`Vencimento: ${vencimento(selMonth)} (último dia útil; confira feriados).`:m.acumulado>0?`Valor abaixo de R$ 10 fica para o próximo DARF: ${brl(m.acumulado)}.`:"Nada a pagar neste mês."}
+      ${m.darf>0?(()=>{ const pg=(S.pagos||{})[selMonth]||{}; return `<div class="pagto"><label>Pago em<input type="date" data-ym="${selMonth}" data-f="pg.data" value="${esc(pg.data||"")}"></label>
+        <label>Valor principal (R$)<input class="num" type="text" inputmode="decimal" data-ym="${selMonth}" data-f="pg.principal" value="${pg.principal!=null&&pg.principal!==""?n2(num(pg.principal)):""}" placeholder="${n2(m.darf)}"></label>
+        <label>Multa e juros (R$)<input class="num" type="text" inputmode="decimal" data-ym="${selMonth}" data-f="pg.encargos" value="${pg.encargos?n2(num(pg.encargos)):""}" placeholder="0,00"></label>
+        ${pg.data?`<button class="btn sm" data-act="pgClear" data-ym="${selMonth}">Desmarcar pagamento</button>`:""}</div>`; })():""}
+      <p class="breakdown">${m.darf>0?`Vencimento: ${vencimento(selMonth)} (último dia útil; confira feriados). Na declaração vai só o valor principal; multa e juros não entram.`:m.acumulado>0?`Valor abaixo de R$ 10 fica para o próximo DARF: ${brl(m.acumulado)}.`:"Nada a pagar neste mês."}
       Prejuízo a compensar depois deste mês: comum ${brl(m.prejApos.comum)}, day trade ${brl(m.prejApos.dt)}, FII ${brl(m.prejApos.fii)}.</p>
     </div><div>
       <h4>Vendas realizadas</h4>
@@ -746,7 +784,7 @@ function renderApuracao(){
     <div><small>Prejuízo para o próximo ano</small><b>${brl(Y.prej.comum+Y.prej.dt+Y.prej.fii)}</b><p>Comum ${brl(Y.prej.comum)}, day trade ${brl(Y.prej.dt)}, FII ${brl(Y.prej.fii)}</p></div>
   </div>`;
   const rows=yms.map(k=>{ const x=R.months[k]; return `<tr class="click ${k===selMonth?"sel":""}" data-act="month" data-ym="${k}"><td>${MESES[+k.slice(5)-1]}</td><td class="r">${brl(x.vendasAcoes)}</td><td class="r">${x.isento?brl(x.isento):"—"}</td><td class="r ${cls(x.res.comum)}">${brl(x.res.comum)}</td><td class="r ${cls(x.res.dt)}">${brl(x.res.dt)}</td><td class="r ${cls(x.res.fii)}">${brl(x.res.fii)}</td><td class="r">${brl(x.custos)}</td><td class="r">${brl(x.imposto)}</td><td class="r">${brl(x.irrf+x.irrfDT)}</td><td class="r"><b>${x.darf?brl(x.darf):"—"}</b></td></tr>`; }).join("");
-  el.innerHTML=expBox+warn+detail+sum+`<div class="toolbar"><h3 style="margin:0">Mês a mês</h3><button class="btn sm" data-act="csv">Baixar CSV da apuração</button></div>
+  el.innerHTML=atrasoBox+expBox+warn+detail+sum+`<div class="toolbar"><h3 style="margin:0">Mês a mês</h3><button class="btn sm" data-act="csv">Baixar CSV da apuração</button></div>
     <div class="scroll"><table><thead><tr><th>Mês</th><th class="r">Vendas ações</th><th class="r">Isento</th><th class="r">Comum</th><th class="r">Day trade</th><th class="r">FII</th><th class="r">Custos</th><th class="r">Imposto</th><th class="r">IRRF</th><th class="r">DARF</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function discr(id,p){ const pm=p.q?p.cost/p.q:0; const un=p.tipo==="fii"||p.tipo==="etf"?"cotas":p.tipo==="bdr"?"BDRs":p.tipo==="opcao"?"opções":"ações"; return `${qf(p.q)} ${un} de ${id}, custo médio de ${brl(pm)} por unidade. Custodiadas na Necton Investimentos.`; }
@@ -789,6 +827,121 @@ function renderAjustes(){
   <div class="row"><button class="btn" data-act="export">Baixar backup (JSON)</button>
   <label class="btn" style="cursor:pointer">Restaurar backup<input type="file" id="restore" accept=".json,application/json" style="display:none"></label>
   <button class="btn del" data-act="wipe">Apagar todos os dados</button></div>`;
+}
+
+/* ---------- vencimento e exercício de opções ---------- */
+const isCallTicker=t=>{ const c=String(t||"").toUpperCase().charAt(4); return c>="A"&&c<="L"; };
+function guessUnderlying(id,espec){ const t=String(id||"").toUpperCase().split(/\s+/)[0]; const root=t.slice(0,4); const e=String(espec||"").toUpperCase();
+  const cls=/\bUNT\b/.test(e)?"11":/\bPNA\b/.test(e)?"5":/\bPNB\b/.test(e)?"6":/\bPN\b/.test(e)?"4":"3"; return root+cls; }
+function guessStrike(id){ const m=String(id||"").toUpperCase().match(/^[A-Z]{5}(\d{1,3})/); if(!m) return 0; const d=m[1]; return d.length===3?+d/10:+d; }
+function expireNote(id){ const p=R.posNow[id]; if(!p||Math.abs(p.q)<1e-9) return null; const date=optExpiry(p.prazo,id)||hojeIso();
+  return {id:"v"+sanitize(id)+"_"+date.replace(/-/g,""),numero:"VENC",data:date,trades:[{cv:p.q>0?"V":"C",mercado:"OPCAO DE COMPRA",prazo:"",espec:p.espec,obs:"",qtd:Math.abs(p.q),preco:0,valor:0}],fees:{},irrf:0,irrfDT:0,liquido:null,override:0,fileName:"Vencimento de opção sem exercício"}; }
+function exerciseNote(id,und,strike,date,custos){
+  const p=R.posNow[id]; if(!p||Math.abs(p.q)<1e-9) return null; const q=Math.abs(p.q), unit=p.cost/q, call=isCallTicker(id), long=p.q>0;
+  // Regra da Receita: o prêmio pago ou recebido ajusta o custo (ou o valor de venda) da ação; a opção não gera resultado próprio.
+  // Call comprada: compra a strike + prêmio. Call lançada: venda a strike + prêmio. Put comprada: venda a strike − prêmio. Put lançada: compra a strike − prêmio.
+  const cvStock=(call&&long)||(!call&&!long)?"C":"V";
+  const priceStock=call?strike+unit:strike-unit;
+  return {id:"x"+sanitize(id)+"_"+date.replace(/-/g,""),numero:"EXERC",data:date,trades:[
+    {cv:long?"V":"C",mercado:"OPCAO DE "+(call?"COMPRA":"VENDA"),prazo:"",espec:p.espec,obs:"",qtd:q,preco:unit,valor:p.cost},
+    {cv:cvStock,mercado:"VISTA",prazo:"",espec:String(und).toUpperCase().trim(),obs:"",qtd:q,preco:priceStock,valor:priceStock*q}],
+    fees:{},irrf:0,irrfDT:0,liquido:null,override:custos||0,fileName:"Exercício de opção"}; }
+function addGenerated(n){ if(!n) return false; if(S.notes.some(y=>y.id===n.id)){ alert("Esse lançamento já foi registrado."); return false; } S.notes.push(n); ensureAssets(); Store.saveNote(n); refresh(); return true; }
+
+/* ---------- aba Posições ---------- */
+function renderPosicoes(){
+  const el=$("#p-posicoes"); const P=R.posNow||{}; const hoje=hojeIso();
+  const opts=Object.entries(P).filter(([,p])=>p.tipo==="opcao"&&Math.abs(p.q)>1e-9).sort((a,b)=>(optExpiry(a[1].prazo,a[0])||"").localeCompare(optExpiry(b[1].prazo,b[0])||""));
+  const outros=Object.entries(P).filter(([,p])=>p.tipo!=="opcao"&&p.q>1e-9).sort((a,b)=>a[0].localeCompare(b[0]));
+  const dias=v=>Math.round((new Date(v+"T12:00:00")-new Date(hoje+"T12:00:00"))/86400000);
+  let h=`<h3>Opções em aberto</h3><p class="lead">Posições que ainda não foram encerradas por recompra, venda, vencimento ou exercício. No vencimento, registre o que aconteceu: “virou pó” lança o prêmio como resultado; “exercida” lança a compra ou venda da ação pelo strike, com o prêmio ajustando o custo, como manda a Receita.</p>`;
+  if(!opts.length) h+=`<p class="mut">Nenhuma opção em aberto.</p>`;
+  else h+=`<div class="scroll"><table><thead><tr><th>Opção</th><th>Tipo</th><th>Posição</th><th class="r">Qtd</th><th class="r">Prêmio médio</th><th class="r">Total</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead><tbody>${opts.map(([id,p])=>{
+    const v=optExpiry(p.prazo,id), dd=v?dias(v):null, long=p.q>0, call=isCallTicker(id);
+    const sit=v==null?`<span class="mut">sem data</span>`:dd<0?`<span class="tag bad">Venceu há ${-dd} dia(s)</span>`:dd===0?`<span class="tag warn">Vence hoje</span>`:`<span class="tag ${dd<=7?"warn":"ok"}">Vence em ${dd} dia(s)</span>`;
+    const f=exForm[id];
+    const row=`<tr><td><b>${esc(id)}</b></td><td>${call?"Call":"Put"}</td><td>${long?"Comprada":"Vendida (lançada)"}</td><td class="r">${qf(Math.abs(p.q))}</td><td class="r">${n2(p.cost/Math.abs(p.q))}</td><td class="r">${brl(p.cost)}</td><td>${v?fmtDate(v):"—"}</td><td>${sit}</td>
+      <td style="white-space:nowrap"><button class="btn sm" data-act="posExpire" data-id="${esc(id)}" ${dd!=null&&dd>0?"disabled title='Disponível a partir do vencimento'":""}>Virou pó</button> <button class="btn sm" data-act="posExForm" data-id="${esc(id)}">Exercida…</button></td></tr>`;
+    if(!f) return row;
+    const und=f.und||guessUnderlying(id,p.espec), k=f.strike!=null?f.strike:guessStrike(id), dt=f.date||v||hoje;
+    const unit=p.cost/Math.abs(p.q); const cvS=(call&&long)||(!call&&!long)?"compra":"venda"; const pr=call?num(k)+unit:num(k)-unit;
+    return row+`<tr><td colspan="9" style="background:var(--paper)"><div class="exform">
+      <label>Ação objeto<input class="txt" type="text" id="ex-und-${esc(id)}" value="${esc(und)}"></label>
+      <label>Strike (R$)<input class="num" type="text" inputmode="decimal" id="ex-k-${esc(id)}" value="${n2(num(k))}"></label>
+      <label>Data do exercício<input type="date" id="ex-d-${esc(id)}" value="${esc(dt)}"></label>
+      <label>Custos do exercício (R$)<input class="num" type="text" inputmode="decimal" id="ex-c-${esc(id)}" placeholder="0,00"></label>
+      <button class="btn pri sm" data-act="posExercise" data-id="${esc(id)}">Lançar exercício</button><button class="btn sm" data-act="posExCancel" data-id="${esc(id)}">Cancelar</button></div>
+      <p class="breakdown">Será lançada a ${cvS} de ${qf(Math.abs(p.q))} ${esc(und)} a ${brl(pr)} por ação (strike ${call?"+":"−"} prêmio de ${brl(unit)}), e a opção sai da carteira sem resultado próprio. Confira o strike na nota ou no site da B3: o código da opção nem sempre traz o valor exato. Se a corretora emitir nota do exercício, use os custos dela aqui e não importe essa nota.</p></td></tr>`;
+  }).join("")}</tbody></table></div>`;
+  h+=`<h3>Ações, FIIs e ETFs em carteira</h3>`;
+  h+= outros.length?`<div class="scroll"><table><thead><tr><th>Ativo</th><th>Tipo</th><th class="r">Qtd</th><th class="r">Preço médio</th><th class="r">Custo total</th></tr></thead><tbody>${outros.map(([id,p])=>`<tr><td><b>${esc(id)}</b></td><td>${TIPOS[p.tipo]||p.tipo}</td><td class="r">${qf(p.q)}</td><td class="r">${n2(p.cost/p.q)}</td><td class="r">${brl(p.cost)}</td></tr>`).join("")}</tbody></table></div>`:`<p class="mut">Nenhuma posição.</p>`;
+  el.innerHTML=h;
+}
+
+/* ---------- aba Declaração ---------- */
+function renderDeclaracao(){
+  const el=$("#p-declaracao"); const Y=R.years[year];
+  if(!Y){ el.innerHTML=`<div class="empty">Sem operações em ${year}.</div>`; return; }
+  const ms=[...Array(12)].map((_,i)=>`${year}-${String(i+1).padStart(2,"0")}`);
+  const prejIni=ms.map(k=>R.months[k]).find(Boolean);
+  let prev={...(prejIni?prejIni.prejAntes:{comum:0,dt:0,fii:0})};
+  const cols=ms.map(k=>{ const m=R.months[k]; if(m){ prev={...m.prejApos}; return m; } return {vazio:true,prejAntes:{...prev},prejApos:{...prev}}; });
+  const v=(m,f)=>m.vazio?0:f(m);
+  const cell=x=>`<td class="r ${cls(x)}">${Math.abs(x)<0.005?"—":n2(x)}</td>`;
+  const row=(label,f,dig)=>`<tr class="${dig?"dig":""}"><td>${label}</td>${cols.map(m=>cell(f(m))).join("")}</tr>`;
+  const sec=t=>`<tr class="sec"><td>${t}</td>${cols.map(()=>"<td></td>").join("")}</tr>`;
+  const hasFii=cols.some(m=>!m.vazio&&Math.abs(m.res.fii)>0.004)||num(S.prej.fii)>0;
+  let body=sec("Operações comuns")
+    +row("Mercado à vista – ações",m=>v(m,m=>m.mk.vc),true)
+    +row("Mercado de opções – ações",m=>v(m,m=>m.mk.oc),true)
+    +row("Resultado líquido do mês",m=>v(m,m=>m.res.comum))
+    +row("Resultado negativo até o mês anterior",m=>-m.prejAntes.comum)
+    +row("Base de cálculo do imposto",m=>v(m,m=>m.base.comum))
+    +row("Prejuízo a compensar",m=>-m.prejApos.comum)
+    +row("Imposto devido (15%)",m=>v(m,m=>m.base.comum*.15))
+    +sec("Day trade")
+    +row("Mercado à vista – ações",m=>v(m,m=>m.mk.vd),true)
+    +row("Mercado de opções – ações",m=>v(m,m=>m.mk.od),true)
+    +row("Resultado líquido do mês",m=>v(m,m=>m.res.dt))
+    +row("Resultado negativo até o mês anterior",m=>-m.prejAntes.dt)
+    +row("Base de cálculo do imposto",m=>v(m,m=>m.base.dt))
+    +row("Prejuízo a compensar",m=>-m.prejApos.dt)
+    +row("Imposto devido (20%)",m=>v(m,m=>m.base.dt*.20))
+    +sec("Consolidação do mês")
+    +row("Total do imposto devido",m=>v(m,m=>m.base.comum*.15+m.base.dt*.20))
+    +row("IR fonte de day trade no mês",m=>v(m,m=>m.irrfDT),true)
+    +row("IR fonte (Lei 11.033/2004) no mês",m=>v(m,m=>m.irrf),true)
+    +row("Imposto a pagar (DARF do mês)",m=>v(m,m=>m.darf))
+    +row("Imposto pago",m=>{ const k=ms[cols.indexOf(m)], p=pagoDe(k); return p?num(p.principal!=null&&p.principal!==""?p.principal:(R.months[k]||{}).darf||0):0; },true);
+  const fiiBody=hasFii?sec("Fundos imobiliários (ficha própria)")
+    +row("Resultado líquido do mês",m=>v(m,m=>m.res.fii),true)
+    +row("Resultado negativo até o mês anterior",m=>-m.prejAntes.fii)
+    +row("Base de cálculo",m=>v(m,m=>m.base.fii))
+    +row("Prejuízo a compensar",m=>-m.prejApos.fii)
+    +row("Imposto devido (20%)",m=>v(m,m=>m.base.fii*.20)):"";
+  const pagoAno=ms.reduce((s,k)=>{ const p=pagoDe(k); return s+(p?num(p.principal!=null&&p.principal!==""?p.principal:(R.months[k]||{}).darf||0):0); },0);
+  const rf=ms.reduce((s,k)=>s+((R.months[k]||{}).rf||0),0);
+  el.innerHTML=`<p class="lead">Espelho da ficha <b>Renda Variável</b> do programa da Receita, mês a mês. As linhas marcadas com ✎ são as que você digita no programa; as demais o programa calcula sozinho e servem para conferir. Prejuízos aparecem com sinal negativo.</p>
+  <div class="scroll"><table class="decl"><thead><tr><th>${year}</th>${ms.map(k=>`<th class="r">${MESES[+k.slice(5)-1]}</th>`).join("")}</tr></thead><tbody>${body}${fiiBody}</tbody></table></div>
+  <div class="toolbar"><h3 style="margin:0">Outras fichas</h3><button class="btn sm" data-act="declCsv">Baixar CSV da declaração</button></div>
+  <div class="summary">
+    <div><small>Rendimentos Isentos e Não Tributáveis</small><b>${brl(Y.isento)}</b><p>Linha de ganhos líquidos em operações no mercado à vista de ações com vendas até R$ 20 mil no mês.</p></div>
+    <div><small>Imposto pago no ano (principal)</small><b>${brl(pagoAno)}</b><p>DARFs devidos no ano: ${brl(Y.darf)}${Y.acum>0.004?`. Saldo abaixo de R$ 10 ainda pendente: ${brl(Y.acum)}`:""}.</p></div>
+    <div><small>Prejuízo a compensar em dezembro</small><b>${brl(Y.prej.comum+Y.prej.dt)}</b><p>Comum ${brl(Y.prej.comum)}, day trade ${brl(Y.prej.dt)}. Passa para o ano seguinte.</p></div>
+    ${rf?`<div><small>ETF de renda fixa</small><b>${brl(rf)}</b><p>IR retido na fonte. Vai em Rendimentos Sujeitos à Tributação Exclusiva, pelo informe da corretora, e não na Renda Variável.</p></div>`:""}
+  </div>
+  <p class="breakdown">Os campos e nomes seguem a ficha dos últimos anos; confira no programa do ano, que pode mudar. Em meses de isenção, o lucro com ações não entra na linha “à vista” (vai para Rendimentos Isentos); prejuízo com ações entra normalmente.</p>`;
+}
+function declCsv(){
+  const ms=[...Array(12)].map((_,i)=>`${year}-${String(i+1).padStart(2,"0")}`);
+  const f=x=>(x||0).toFixed(2).replace(".",",");
+  const L=[["Campo",...ms]];
+  const add=(n,fn)=>L.push([n,...ms.map(k=>{ const m=R.months[k]; return m?f(fn(m,k)):""; })]);
+  add("Comum - à vista",m=>m.mk.vc); add("Comum - opções",m=>m.mk.oc); add("Comum - resultado",m=>m.res.comum); add("Comum - prejuízo a compensar",m=>m.prejApos.comum);
+  add("DT - à vista",m=>m.mk.vd); add("DT - opções",m=>m.mk.od); add("DT - resultado",m=>m.res.dt); add("DT - prejuízo a compensar",m=>m.prejApos.dt);
+  add("IRRF day trade",m=>m.irrfDT); add("IRRF 0,005%",m=>m.irrf); add("Imposto a pagar",m=>m.darf);
+  add("Imposto pago",(m,k)=>{ const p=pagoDe(k); return p?num(p.principal!=null&&p.principal!==""?p.principal:m.darf):0; });
+  return "\ufeff"+L.map(r=>r.join(";")).join("\r\n");
 }
 
 /* ---------- importação ---------- */
@@ -863,6 +1016,10 @@ document.addEventListener("change",e=>{
     if(["t.qtd","t.preco","t.espec"].includes(f)){ const b=document.getElementById("body-"+n.id); if(b) b.innerHTML=noteBody(n); }
     return;
   }
+  if(f.startsWith("pg.")){ const ym=t.dataset.ym; S.pagos=S.pagos||{}; const pg=S.pagos[ym]||(S.pagos[ym]={}); const k=f.slice(3);
+    if(k==="data"){ pg.data=t.value; if(pg.data&&(pg.principal==null||pg.principal==="")) pg.principal=+(((R.months[ym]||{}).darf)||0).toFixed(2); if(!pg.data) delete S.pagos[ym]; }
+    else pg[k]=t.value.trim()===""?"":num(t.value);
+    Store.saveCfg(); refresh(); return; }
   if(f.startsWith("a.")){ const a=S.assets[t.dataset.asset]; if(!a) return; a[f.slice(2)]=f==="a.ticker"?t.value.trim().toUpperCase():t.value; if(f==="a.ticker") t.value=a.ticker; }
   else if(f.startsWith("ini.")){ const p=S.inicial[+t.dataset.i]; const k=f.slice(4); p[k]=k==="ticker"?t.value.trim().toUpperCase():k==="tipo"?t.value:k==="qtd"?qnum(t.value):num(t.value); }
   else if(f.startsWith("prej.")){ S.prej[f.slice(5)]=num(t.value); }
@@ -893,9 +1050,16 @@ document.addEventListener("click",async e=>{
     if(openNotes.has(id)){ openNotes.delete(id); body.hidden=true; body.innerHTML=""; b.setAttribute("aria-expanded","false"); }
     else { openNotes.add(id); body.innerHTML=noteBody(findNote(id)); body.hidden=false; b.setAttribute("aria-expanded","true"); } }
   else if(act==="month"){ selMonth=b.dataset.ym; showTab("apuracao"); renderCarne(); renderApuracao(); }
-  else if(act==="expire"){ const x=R.expired.find(e=>e.id===b.dataset.id); if(!x) return;
-    const n={id:"v"+sanitize(x.id)+"_"+x.date.replace(/-/g,""),numero:"VENC",data:x.date,trades:[{cv:x.q>0?"V":"C",mercado:"OPCAO DE COMPRA",prazo:"",espec:x.espec,qtd:Math.abs(x.q),preco:0,valor:0}],fees:{},irrf:0,irrfDT:0,liquido:null,override:0,fileName:"Vencimento de opção sem exercício"};
-    if(S.notes.some(y=>y.id===n.id)) return; S.notes.push(n); Store.saveNote(n); refresh(); }
+  else if(act==="expire"||act==="posExpire"){ addGenerated(expireNote(b.dataset.id)); }
+  else if(act==="posExForm"){ exForm[b.dataset.id]={}; renderPosicoes(); }
+  else if(act==="posExCancel"){ delete exForm[b.dataset.id]; renderPosicoes(); }
+  else if(act==="posExercise"){ const id=b.dataset.id; const g=x=>document.getElementById(x+id);
+    const und=g("ex-und-").value.trim().toUpperCase(), k=num(g("ex-k-").value), d=g("ex-d-").value, c=num(g("ex-c-").value);
+    if(!/^[A-Z]{4}\d{1,2}$/.test(und)){ alert("Informe o código da ação objeto, como PETR4."); return; }
+    if(!(k>0)){ alert("Informe o strike."); return; } if(!d){ alert("Informe a data do exercício."); return; }
+    if(addGenerated(exerciseNote(id,und,k,d,c))) delete exForm[id], renderPosicoes(); }
+  else if(act==="pgClear"){ delete S.pagos[b.dataset.ym]; Store.saveCfg(); refresh(); }
+  else if(act==="declCsv"){ saveFile(`declaracao-renda-variavel-${year}.csv`,declCsv(),"text/csv"); }
   else if(act==="addNote"){ const n={id:"m"+Date.now().toString(36),numero:"",data:new Date().toISOString().slice(0,10),trades:[{cv:"C",mercado:"VISTA",espec:"",qtd:0,preco:0,valor:0}],fees:{},irrf:0,irrfDT:0,liquido:null,override:0,fileName:""}; S.notes.push(n); openNotes.add(n.id); Store.saveNote(n); refresh(); }
   else if(act==="addTrade"){ const n=findNote(b.dataset.note); n.trades.push({cv:"C",mercado:"VISTA",espec:"",qtd:0,preco:0,valor:0}); Store.saveNote(n); refresh(); }
   else if(act==="delTrade"){ const n=findNote(b.dataset.note); n.trades.splice(+b.dataset.i,1); Store.saveNote(n); refresh(); }
@@ -904,7 +1068,7 @@ document.addEventListener("click",async e=>{
   else if(act==="delIni"){ S.inicial.splice(+b.dataset.i,1); Store.saveCfg(); refresh(); }
   else if(act==="csv"){ saveFile(`apuracao-ir-${year}.csv`,csv(),"text/csv"); }
   else if(act==="export"){ if(!Store.key){ alert("Entre com o Google e abra os dados antes de gerar o backup."); return; } const p=await encryptObj(dataObj(),Store.key,Store.salt); saveFile(`backup-ir-b3-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(p),"application/json"); }
-  else if(act==="wipe"){ if(!confirm("Apagar todas as notas e ajustes? Isso não pode ser desfeito.")) return; S.notes.forEach(n=>Store.delNote(n.id)); S={notes:[],assets:{},inicial:[],prej:{comum:0,dt:0,fii:0}}; Store.saveCfg(); refresh(); }
+  else if(act==="wipe"){ if(!confirm("Apagar todas as notas e ajustes? Isso não pode ser desfeito.")) return; S.notes.forEach(n=>Store.delNote(n.id)); S=EMPTY(); Store.saveCfg(); refresh(); }
   else if(act==="copy"){ try{ await navigator.clipboard.writeText(b.dataset.text); b.textContent="Copiado"; }catch(err){ prompt("Copie o texto:",b.dataset.text); } }
 });
 document.addEventListener("change",async e=>{
@@ -914,7 +1078,7 @@ document.addEventListener("change",async e=>{
     else if(o.dados) o=o.dados;
     if(!Array.isArray(o.notes)) throw new Error();
     S.notes.forEach(n=>Store.delNote(n.id));
-    S={notes:o.notes,assets:o.assets||{},inicial:o.inicial||[],prej:o.prej||{comum:0,dt:0,fii:0}};
+    S={notes:o.notes,assets:o.assets||{},inicial:o.inicial||[],prej:o.prej||{comum:0,dt:0,fii:0},pagos:o.pagos||{}};
     S.notes.forEach(n=>Store.saveNote(n)); Store.saveCfg(); refresh(); log("Backup restaurado.");
   }catch(err){ alert("Arquivo de backup inválido."); }
   e.target.value="";
