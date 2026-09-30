@@ -249,7 +249,8 @@ footer p{margin:0;max-width:80ch}
 
 const MESES=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
 const MESES_L=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
-const TIPOS={acao:"Ação",fii:"FII",etf:"ETF",bdr:"BDR",opcao:"Opção"};
+const TIPOS={acao:"Ação",fii:"FII",etf:"ETF",etfrf:"ETF renda fixa",bdr:"BDR",opcao:"Opção"};
+const ETF_RF=/^(LFT[A-Z]|IMAB|IMBB|IRFM|B5P2|B5MB|IB5M|FIXA|DEBB|NTNS|5PRE|IDKA)\d{2}$/;
 const EX=new Set(["ED","EJ","EDJ","EB","ER","ES","EDB","EDR","EG","EC","EX","ATZ","ERJ","ERB","EBJ","EDS","ERS","EBR","EJS"]);
 const NUM="(\\d{1,3}(?:\\.\\d{3})+,\\d{2,8}|\\d+,\\d{2,8})";
 
@@ -436,10 +437,11 @@ function setStatus(msg){ const st=Store.state; $("#status").textContent = msg ||
 
 /* ---------- ativos ---------- */
 function normKey(espec){ return String(espec||"").toUpperCase().replace(/#/g," ").split(/\s+/).filter(t=>t && !EX.has(t)).join(" "); }
-function guessTicker(espec){ const tk=String(espec||"").toUpperCase().split(/\s+/); const o=tk.find(x=>/^[A-Z]{4}[A-X]\d{1,3}E?$/.test(x)); if(o) return o; const t=tk.find(x=>/^[A-Z]{4}\d{1,2}F?$/.test(x)); return t? t.replace(/F$/,""):""; }
+function guessTicker(espec){ const tk=String(espec||"").toUpperCase().split(/\s+/); const o=tk.find(x=>/^[A-Z]{4}[A-X]\d{1,3}(W[1-5])?E?$/.test(x)); if(o) return o; const t=tk.find(x=>/^[A-Z]{4}\d{1,2}F?$/.test(x)); return t? t.replace(/F$/,""):""; }
 function guessTipo(espec,mercado){
   const e=String(espec||"").toUpperCase();
   if(/^OPCAO/.test(mercado||"")) return "opcao";
+  if(e.split(/\s+/).some(t=>ETF_RF.test(t))) return "etfrf";
   if(/\bFII\b/.test(e)) return "fii";
   if(/\bDRN?\d?\b/.test(e)) return "bdr";
   if(/\bCI\b/.test(e)) return "etf";
@@ -548,7 +550,7 @@ function compute(){
   for(const p of S.inicial){ const id=String(p.ticker||"").toUpperCase().trim(); if(!id) continue; const q=qnum(p.qtd); pos[id]={q,cost:q*num(p.pm),tipo:p.tipo||"acao",label:id}; }
   const initialSnap=clone(pos);
   const days={}, months={};
-  const M=ym=>months[ym]||(months[ym]={vendasAcoes:0,acao:0,outros:0,dt:0,fii:0,irrf:0,irrfDT:0,custos:0,ops:[]});
+  const M=ym=>months[ym]||(months[ym]={vendasAcoes:0,acao:0,outros:0,dt:0,fii:0,rf:0,irrf:0,irrfDT:0,custos:0,ops:[]});
   for(const n of S.notes){
     if(!n.data) continue; const m=M(n.data.slice(0,7));
     const total=n.trades.reduce((s,t)=>s+(+t.valor||0),0), cost=noteCost(n);
@@ -579,8 +581,8 @@ function compute(){
         dt=Math.min(g.Bq,g.Sq); pb=g.Bq?g.Bc/g.Bq:0; ps=g.Sq?g.Sn/g.Sq:0;
         rbq=g.Bq-dt; rbc=rbq*pb; rsq=g.Sq-dt; rsn=rsq*ps; rsg=g.Sq?rsq*g.Sg/g.Sq:0;
       }
-      if(dt>0){ const r=dt*(ps-pb); if(g.tipo==="fii") m.fii+=r; else m.dt+=r; m.ops.push({date,id,kind:"Day trade",q:dt,pm:pb,pv:ps,r,tipo:g.tipo}); }
-      const book=(r,q,pm,pv)=>{ if(g.tipo==="acao") m.acao+=r; else if(g.tipo==="fii") m.fii+=r; else m.outros+=r; m.ops.push({date,id,kind:"Comum",q,pm,pv,r,tipo:g.tipo}); };
+      if(dt>0){ const r=dt*(ps-pb); if(g.tipo==="fii") m.fii+=r; else if(g.tipo==="etfrf") m.rf+=r; else m.dt+=r; m.ops.push({date,id,kind:"Day trade",q:dt,pm:pb,pv:ps,r,tipo:g.tipo}); }
+      const book=(r,q,pm,pv)=>{ if(g.tipo==="acao") m.acao+=r; else if(g.tipo==="fii") m.fii+=r; else if(g.tipo==="etfrf") m.rf+=r; else m.outros+=r; m.ops.push({date,id,kind:"Comum",q,pm,pv,r,tipo:g.tipo}); };
       const doBuy=()=>{ let q=rbq; if(q<=0) return; const u=rbc/rbq;
         if(p.q<0){ const c=Math.min(q,-p.q), avgS=p.cost/(-p.q); book(c*(avgS-u),c,u,avgS); p.cost-=avgS*c; p.q+=c; q-=c; if(p.q>-1e-9){p.q=0;p.cost=0;} }
         if(q>0){ p.q+=q; p.cost+=q*u; } };
@@ -619,7 +621,7 @@ function compute(){
   return {months,snaps,initialSnap,warnings,years,expired};
 }
 function optExpiry(prazo,ticker){ const m=String(prazo).match(/^(\d{2})\/(\d{2})$/); if(!m) return null; const mo=+m[1]-1, y=2000+(+m[2]); const d=new Date(y,mo,1); const add=(5-d.getDay()+7)%7;
-  const w=String(ticker||"").toUpperCase().match(/W([1-5])$/); d.setDate(1+add+7*((w?+w[1]:3)-1)); if(d.getMonth()!==mo) d.setDate(d.getDate()-7); return `${y}-${String(mo+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+  const w=String(ticker||"").toUpperCase().match(/\d(?:E)?W([1-5])\b|\dW([1-5])E?\b/); const wk=w?+(w[1]||w[2]):0; d.setDate(1+add+7*((wk||3)-1)); if(d.getMonth()!==mo) d.setDate(d.getDate()-7); return `${y}-${String(mo+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function snapAt(y){ if(R.snaps[y]) return R.snaps[y]; const ys=Object.keys(R.snaps).map(Number).filter(v=>v<y).sort((a,b)=>b-a); return ys.length? R.snaps[ys[0]] : R.initialSnap; }
 function vencimento(ym){ let [y,m]=ym.split("-").map(Number); m+=1; if(m>12){m=1;y++;} const d=new Date(y,m,0); while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1); return d.toLocaleDateString("pt-BR"); }
 
@@ -717,6 +719,7 @@ function renderApuracao(){
         ${lg("Resultado comum",brl(m.res.comum),cls(m.res.comum))}
         ${lg("Resultado day trade",brl(m.res.dt),cls(m.res.dt))}
         ${lg("Resultado FII",brl(m.res.fii),cls(m.res.fii))}
+        ${m.rf?lg("ETF renda fixa (IR retido na fonte, fora do DARF)",brl(m.rf),cls(m.rf)):""}
         ${lg("Prejuízo compensado",brl(m.comp.comum+m.comp.dt+m.comp.fii))}
         ${lg("Base comum × 15%",brl(m.base.comum))}
         ${lg("Base day trade × 20%",brl(m.base.dt))}
@@ -731,7 +734,7 @@ function renderApuracao(){
     </div><div>
       <h4>Vendas realizadas</h4>
       ${m.ops.length?`<div class="scroll"><table><thead><tr><th>Data</th><th>Ativo</th><th>Tipo</th><th class="r">Qtd</th><th class="r">Custo médio</th><th class="r">Venda líquida</th><th class="r">Resultado</th></tr></thead><tbody>
-      ${m.ops.map(o=>`<tr><td>${fmtDate(o.date)}</td><td>${esc(o.id)}</td><td>${o.kind==="Day trade"?"Day trade":TIPOS[o.tipo]}</td><td class="r">${qf(o.q)}</td><td class="r">${n2(o.pm)}</td><td class="r">${n2(o.pv)}</td><td class="r ${cls(o.r)}">${brl(o.r)}</td></tr>`).join("")}
+      ${m.ops.map(o=>`<tr><td>${fmtDate(o.date)}</td><td>${esc(o.id)}</td><td>${o.kind==="Day trade"?"Day trade":TIPOS[o.tipo]}${o.tipo==="etfrf"?" (fonte)":""}</td><td class="r">${qf(o.q)}</td><td class="r">${n2(o.pm)}</td><td class="r">${n2(o.pv)}</td><td class="r ${cls(o.r)}">${brl(o.r)}</td></tr>`).join("")}
       </tbody></table></div>`:`<p class="mut">Só compras neste mês.</p>`}
     </div></div>`;
   const sum=`<div class="summary">
@@ -762,7 +765,7 @@ function renderAjustes(){
   const el=$("#p-ajustes"); const keys=Object.keys(S.assets).sort();
   const tipoSel=(attrs,v)=>`<select ${attrs}>${Object.entries(TIPOS).map(([k,l])=>`<option value="${k}" ${v===k?"selected":""}>${l}</option>`).join("")}</select>`;
   el.innerHTML=`<h3>Ativos encontrados nas notas</h3>
-  <p class="lead">A nota traz o nome do papel, não o código. Informe o código (PETR4, HGLG11…) para juntar o mesmo ativo entre notas e preencher a carteira. O tipo define a regra do imposto: só “Ação” entra na isenção de R$ 20 mil.</p>
+  <p class="lead">A nota traz o nome do papel, não o código. Informe o código (PETR4, HGLG11…) para juntar o mesmo ativo entre notas e preencher a carteira. O tipo define a regra do imposto: só “Ação” entra na isenção de R$ 20 mil, e “ETF renda fixa” (LFTB11, IMAB11…) fica fora do DARF porque o IR é retido na fonte.</p>
   ${keys.length?`<div class="scroll"><table><thead><tr><th>Especificação na nota</th><th>Código</th><th>Tipo</th></tr></thead><tbody>
   ${keys.map(k=>`<tr><td>${esc(k)}</td><td style="width:140px"><input class="txt" type="text" data-asset="${esc(k)}" data-f="a.ticker" value="${esc(S.assets[k].ticker)}" placeholder="ex.: PETR4"></td><td style="width:130px">${tipoSel(`data-asset="${esc(k)}" data-f="a.tipo"`,S.assets[k].tipo)}</td></tr>`).join("")}
   </tbody></table></div>`:`<p class="mut">Aparecem aqui depois de importar notas.</p>`}
