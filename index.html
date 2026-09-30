@@ -558,8 +558,10 @@ function compute(){
       const v=+t.valor||0, q=+t.qtd||0; if(!q) continue;
       const share=total?cost*v/total:0; const k=normKey(t.espec); const a=S.assets[k]||{};
       const id=assetId(t.espec); const tipo=a.tipo||guessTipo(t.espec,t.mercado);
-      const g=d[id]||(d[id]={Bq:0,Bc:0,Sq:0,Sn:0,Sg:0,tipo,espec:k,prazo:""}); if(t.prazo) g.prazo=t.prazo;
-      if(t.cv==="C"){ g.Bq+=q; g.Bc+=v+share; } else { g.Sq+=q; g.Sn+=v-share; g.Sg+=v; }
+      const g=d[id]||(d[id]={Bq:0,Bc:0,Sq:0,Sn:0,Sg:0,DBq:0,DBc:0,DSq:0,DSn:0,DSg:0,tipo,espec:k,prazo:""}); if(t.prazo) g.prazo=t.prazo;
+      const isD=/D/.test(t.obs||"");
+      if(t.cv==="C"){ g.Bq+=q; g.Bc+=v+share; if(isD){ g.DBq+=q; g.DBc+=v+share; } }
+      else { g.Sq+=q; g.Sn+=v-share; g.Sg+=v; if(isD){ g.DSq+=q; g.DSn+=v-share; g.DSg+=v; } }
     }
   }
   const snaps={}; let curY=null;
@@ -568,23 +570,31 @@ function compute(){
     const m=M(date.slice(0,7));
     for(const [id,g] of Object.entries(days[date])){
       const p=pos[id]||(pos[id]={q:0,cost:0,tipo:g.tipo,label:id}); p.tipo=g.tipo; p.espec=g.espec; if(g.prazo) p.prazo=g.prazo;
-      const dt=Math.min(g.Bq,g.Sq), pb=g.Bq?g.Bc/g.Bq:0, ps=g.Sq?g.Sn/g.Sq:0;
-      if(dt>0){ const r=dt*(ps-pb); if(g.tipo==="fii") m.fii+=r; else m.dt+=r; m.ops.push({date,id,kind:"Day trade",q:dt,pm:pb,pv:ps,r,tipo:g.tipo}); }
-      const rb=g.Bq-dt, rs=g.Sq-dt;
-      if(rb>0){ p.q+=rb; p.cost+=rb*pb; }
-      if(rs>0){
-        const pm=p.q>0?p.cost/p.q:0;
-        if(p.q+1e-9<rs) warnings.push(`${fmtDate(date)}: venda de ${qf(rs)} ${id} com só ${qf(p.q)} em carteira. Cadastre a posição inicial em Ajustes para o custo ficar certo.`);
-        const r=rs*(ps-pm), gross=rs*g.Sg/g.Sq;
-        if(g.tipo==="acao"){ m.vendasAcoes+=gross; m.acao+=r; } else if(g.tipo==="fii") m.fii+=r; else m.outros+=r;
-        m.ops.push({date,id,kind:"Comum",q:rs,pm,pv:ps,r,tipo:g.tipo});
-        p.q-=rs; p.cost-=pm*rs; if(p.q<=1e-9){ p.q=0; p.cost=0; }
+      // Day trade: usa a marcação "D" da nota quando ela fecha (mesma quantidade comprada e vendida); senão, preço médio do dia.
+      let dt,pb,ps,rbq,rbc,rsq,rsn,rsg;
+      if(g.DBq>0 && Math.abs(g.DBq-g.DSq)<1e-9 && g.DBq<=g.Bq && g.DSq<=g.Sq){
+        dt=g.DBq; pb=g.DBc/g.DBq; ps=g.DSn/g.DSq;
+        rbq=g.Bq-g.DBq; rbc=g.Bc-g.DBc; rsq=g.Sq-g.DSq; rsn=g.Sn-g.DSn; rsg=g.Sg-g.DSg;
+      } else {
+        dt=Math.min(g.Bq,g.Sq); pb=g.Bq?g.Bc/g.Bq:0; ps=g.Sq?g.Sn/g.Sq:0;
+        rbq=g.Bq-dt; rbc=rbq*pb; rsq=g.Sq-dt; rsn=rsq*ps; rsg=g.Sq?rsq*g.Sg/g.Sq:0;
       }
+      if(dt>0){ const r=dt*(ps-pb); if(g.tipo==="fii") m.fii+=r; else m.dt+=r; m.ops.push({date,id,kind:"Day trade",q:dt,pm:pb,pv:ps,r,tipo:g.tipo}); }
+      const book=(r,q,pm,pv)=>{ if(g.tipo==="acao") m.acao+=r; else if(g.tipo==="fii") m.fii+=r; else m.outros+=r; m.ops.push({date,id,kind:"Comum",q,pm,pv,r,tipo:g.tipo}); };
+      const doBuy=()=>{ let q=rbq; if(q<=0) return; const u=rbc/rbq;
+        if(p.q<0){ const c=Math.min(q,-p.q), avgS=p.cost/(-p.q); book(c*(avgS-u),c,u,avgS); p.cost-=avgS*c; p.q+=c; q-=c; if(p.q>-1e-9){p.q=0;p.cost=0;} }
+        if(q>0){ p.q+=q; p.cost+=q*u; } };
+      const doSell=()=>{ let q=rsq; if(q<=0) return; const u=rsn/rsq;
+        if(g.tipo==="acao") m.vendasAcoes+=rsg;
+        if(p.q>0){ const c=Math.min(q,p.q), pm=p.cost/p.q; book(c*(u-pm),c,pm,u); p.cost-=pm*c; p.q-=c; q-=c; if(p.q<1e-9){p.q=0;p.cost=0;} }
+        if(q>0){ if(g.tipo!=="opcao") warnings.push(`${fmtDate(date)}: venda de ${qf(q)} ${id} sem posição suficiente em carteira. Se não foi venda a descoberto, cadastre a posição inicial em Ajustes.`);
+          p.q-=q; p.cost+=q*u; } };
+      if(p.q<0){ doBuy(); doSell(); } else { doSell(); doBuy(); }
     }
   }
   if(curY!==null) snaps[curY]=clone(pos);
   const expired=[]; const hoje=new Date().toISOString().slice(0,10);
-  for(const [id,p] of Object.entries(pos)){ if(p.tipo==="opcao" && p.q>0 && p.prazo){ const v=optExpiry(p.prazo); if(v && v<hoje) expired.push({id,q:p.q,cost:p.cost,date:v,espec:p.espec}); } }
+  for(const [id,p] of Object.entries(pos)){ if(p.tipo==="opcao" && Math.abs(p.q)>1e-9 && p.prazo){ const v=optExpiry(p.prazo); if(v && v<hoje) expired.push({id,q:p.q,cost:p.cost,date:v,espec:p.espec}); } }
   const prej={comum:num(S.prej.comum),dt:num(S.prej.dt),fii:num(S.prej.fii)};
   let acc=0, irrfS=0, lastY=null; const years={};
   for(const ym of Object.keys(months).sort()){
@@ -694,7 +704,7 @@ function renderApuracao(){
   if(!yms.length){ el.innerHTML=`<div class="empty">Sem operações em ${year}. Importe notas ou escolha outro ano.</div>`; return; }
   if(!selMonth || !R.months[selMonth] || !selMonth.startsWith(year+"-")) selMonth=yms.find(k=>R.months[k].darf>0)||yms[yms.length-1];
   const warn=R.warnings.length?`<div class="warns"><b>Confira antes de usar os números</b><ul>${R.warnings.slice(0,8).map(w=>`<li>${esc(w)}</li>`).join("")}${R.warnings.length>8?`<li>e mais ${R.warnings.length-8} aviso(s)</li>`:""}</ul></div>`:"";
-  const expBox=R.expired.length?`<div class="warns"><b>Opções vencidas ainda em carteira</b><ul>${R.expired.map(x=>`<li>${qf(x.q)} ${esc(x.id)} venceram em ${fmtDate(x.date)} (custo ${brl(x.cost)}). Se viraram pó, registre o vencimento para lançar o prejuízo. Se foram exercidas, lance o exercício como nota manual. <button class="btn sm" data-act="expire" data-id="${esc(x.id)}">Registrar vencimento sem exercício</button></li>`).join("")}</ul></div>`:"";
+  const expBox=R.expired.length?`<div class="warns"><b>Opções vencidas ainda em carteira</b><ul>${R.expired.map(x=>`<li>${x.q>0?`${qf(x.q)} ${esc(x.id)} compradas venceram em ${fmtDate(x.date)} (custo ${brl(x.cost)}). Se viraram pó, registre o vencimento para lançar o prejuízo.`:`${qf(-x.q)} ${esc(x.id)} vendidas (lançadas) venceram em ${fmtDate(x.date)} (prêmio ${brl(x.cost)}). Se não foram exercidas, registre o vencimento para lançar o ganho.`} Se houve exercício, lance a compra ou venda da ação como nota manual. <button class="btn sm" data-act="expire" data-id="${esc(x.id)}">Registrar vencimento sem exercício</button></li>`).join("")}</ul></div>`:"";
   const m=R.months[selMonth], [yy,mm]=selMonth.split("-");
   const lg=(l,v,c="")=>`<tr><td>${l}</td><td class="${c}">${v}</td></tr>`;
   const detail=`<div class="detail"><div>
@@ -878,7 +888,7 @@ document.addEventListener("click",async e=>{
     else { openNotes.add(id); body.innerHTML=noteBody(findNote(id)); body.hidden=false; b.setAttribute("aria-expanded","true"); } }
   else if(act==="month"){ selMonth=b.dataset.ym; showTab("apuracao"); renderCarne(); renderApuracao(); }
   else if(act==="expire"){ const x=R.expired.find(e=>e.id===b.dataset.id); if(!x) return;
-    const n={id:"v"+sanitize(x.id)+"_"+x.date.replace(/-/g,""),numero:"VENC",data:x.date,trades:[{cv:"V",mercado:"OPCAO DE COMPRA",prazo:"",espec:x.espec,qtd:x.q,preco:0,valor:0}],fees:{},irrf:0,irrfDT:0,liquido:null,override:0,fileName:"Vencimento de opção sem exercício"};
+    const n={id:"v"+sanitize(x.id)+"_"+x.date.replace(/-/g,""),numero:"VENC",data:x.date,trades:[{cv:x.q>0?"V":"C",mercado:"OPCAO DE COMPRA",prazo:"",espec:x.espec,qtd:Math.abs(x.q),preco:0,valor:0}],fees:{},irrf:0,irrfDT:0,liquido:null,override:0,fileName:"Vencimento de opção sem exercício"};
     if(S.notes.some(y=>y.id===n.id)) return; S.notes.push(n); Store.saveNote(n); refresh(); }
   else if(act==="addNote"){ const n={id:"m"+Date.now().toString(36),numero:"",data:new Date().toISOString().slice(0,10),trades:[{cv:"C",mercado:"VISTA",espec:"",qtd:0,preco:0,valor:0}],fees:{},irrf:0,irrfDT:0,liquido:null,override:0,fileName:""}; S.notes.push(n); openNotes.add(n.id); Store.saveNote(n); refresh(); }
   else if(act==="addTrade"){ const n=findNote(b.dataset.note); n.trades.push({cv:"C",mercado:"VISTA",espec:"",qtd:0,preco:0,valor:0}); Store.saveNote(n); refresh(); }
