@@ -436,7 +436,7 @@ function setStatus(msg){ const st=Store.state; $("#status").textContent = msg ||
 
 /* ---------- ativos ---------- */
 function normKey(espec){ return String(espec||"").toUpperCase().replace(/#/g," ").split(/\s+/).filter(t=>t && !EX.has(t)).join(" "); }
-function guessTicker(espec){ const t=String(espec||"").toUpperCase().split(/\s+/).find(x=>/^[A-Z]{4}\d{1,2}F?$/.test(x)); return t? t.replace(/F$/,""):""; }
+function guessTicker(espec){ const tk=String(espec||"").toUpperCase().split(/\s+/); const o=tk.find(x=>/^[A-Z]{4}[A-X]\d{1,3}E?$/.test(x)); if(o) return o; const t=tk.find(x=>/^[A-Z]{4}\d{1,2}F?$/.test(x)); return t? t.replace(/F$/,""):""; }
 function guessTipo(espec,mercado){
   const e=String(espec||"").toUpperCase();
   if(/^OPCAO/.test(mercado||"")) return "opcao";
@@ -466,16 +466,16 @@ async function pdfPages(buf,password){
   for(let i=1;i<=doc.numPages;i++){ const p=await doc.getPage(i); const tc=await p.getTextContent(); pages.push(groupLines(tc.items)); }
   return pages;
 }
-const tradeRe=new RegExp("(?:^|\\s)([CV])\\s+(VISTA|FRACIONARIO|OPCAO DE COMPRA|OPCAO DE VENDA|EXERC OPC COMPRA|EXERC OPC VENDA|TERMO)\\s+(?:\\d{2}\\/\\d{2}\\s+)?(.+?)\\s+(\\d{1,3}(?:\\.\\d{3})+|\\d+)\\s+"+NUM+"\\s+"+NUM+"\\s+([DC])(?=\\s|$)","i");
+const tradeRe=new RegExp("(?:^|\\s)([CV])\\s+(VISTA|FRACIONARIO|OPCAO DE COMPRA|OPCAO DE VENDA|EXERC OPC COMPRA|EXERC OPC VENDA|TERMO)\\s+(?:(\\d{2}\\/\\d{2})\\s+)?(.+?)\\s+(\\d{1,3}(?:\\.\\d{3})+|\\d+)\\s+"+NUM+"\\s+"+NUM+"\\s+([DC])(?=\\s|$)","i");
 function fee(flat,label){ const m=flat.match(new RegExp("(?:"+label+")\\s*:?\\s*(?:R\\$\\s*)?"+NUM,"i")); return m?num(m[1]):0; }
 function parsePage(lines){
   const text=lines.join("\n"), flat=lines.join("   ");
   const trades=[];
   for(const line of lines){
     const m=line.match(tradeRe); if(!m) continue;
-    const tk=m[3].trim().split(" "); let obs="";
+    const tk=m[4].trim().split(" "); let obs="";
     while(tk.length>1 && /^[#DFBACHXPYLT28]{1,2}$/.test(tk[tk.length-1])) obs=tk.pop()+obs;
-    trades.push({cv:m[1].toUpperCase(),mercado:m[2].toUpperCase(),espec:tk.join(" "),obs,qtd:qnum(m[4]),preco:num(m[5]),valor:num(m[6])});
+    trades.push({cv:m[1].toUpperCase(),mercado:m[2].toUpperCase(),prazo:m[3]||"",espec:tk.join(" "),obs,qtd:qnum(m[5]),preco:num(m[6]),valor:num(m[7])});
   }
   let numero=null,data=null;
   const h=flat.match(/Nr\.?\s*nota\s+Folha\s+Data\s+preg[ãa]o\s+(\d+)\s+\d+\s+(\d{2}\/\d{2}\/\d{4})/i);
@@ -486,22 +486,22 @@ function parsePage(lines){
   }
   const fees={
     total:fee(flat,"Total\\s*(?:de\\s*)?Custos\\s*\\/\\s*Despesas"),
-    liquidacao:fee(flat,"Taxa\\s*de\\s*liquida[çc][ãa]o"),
+    liquidacao:fee(flat,"Taxa\\s*de\\s*liquida[çc][ãa]o(?:\\s*\\/\\s*CCP)?"),
     registro:fee(flat,"Taxa\\s*de\\s*Registro"),
     termo:fee(flat,"Taxa\\s*de\\s*termo\\s*\\/\\s*op[çc][õo]es"),
     ana:fee(flat,"Taxa\\s*A\\.?N\\.?A\\.?"),
     emolumentos:fee(flat,"Emolumentos"),
-    transf:fee(flat,"Taxa\\s*de\\s*Transf\\.?\\s*de\\s*Ativos"),
-    corretagem:fee(flat,"Taxa\\s*Operacional|Corretagem"),
+    transf:fee(flat,"Taxa\\s*de\\s*Transf(?:\\.|er[êe]ncia)?\\s*de\\s*Ativos"),
+    corretagem:fee(flat,"Taxa\\s*Operacional|Corretagem|Clearing"),
     execucao:fee(flat,"Execu[çc][ãa]o"),
     execCasa:fee(flat,"Execu[çc][ãa]o\\s*casa"),
     custodia:fee(flat,"Taxa\\s*de\\s*Cust[óo]dia"),
-    iss:fee(flat,"I\\.?S\\.?S\\.?(?:\\s*\\([^)]*\\))?"),
+    iss:fee(flat,"I\\.?S\\.?S\\.?\\*?(?:\\s*\\([^)]*\\))?"),
     impostos:fee(flat,"Impostos"),
-    outras:fee(flat,"Outr[ao]s")
+    outras:fee(flat,"Outr[ao]s(?:\\s*Bovespa)?")
   };
   const ir=flat.match(new RegExp("I\\.?R\\.?R\\.?F\\.?\\s*s\\/\\s*opera[çc][õo]es,?\\s*base\\s*R?\\$?\\s*"+NUM+"\\s+"+NUM,"i"));
-  const irdt=flat.match(new RegExp("IRRF\\s*Day\\s*Trade[\\s\\S]{0,60}?Proje[çc][ãa]o\\s*R?\\$?\\s*"+NUM,"i"));
+  const irdt=flat.match(new RegExp("(?:IRRF\\s*Day\\s*Trade|Day\\s*Trade:?\\s*Base\\s*-?\\s*R?\\$?\\s*-?[\\d.,]+\\s*IRRF)[\\s\\S]{0,60}?Proje[çc][ãa]o\\s*R?\\$?\\s*"+NUM,"i"));
   const lq=flat.match(new RegExp("L[íi]quido\\s+para\\s+\\d{2}\\/\\d{2}\\/\\d{4}\\s+(-?)"+NUM+"\\s*([DC])?","i"));
   const bmf=/Mercadoria/i.test(text) && trades.length===0 && /Ajuste/i.test(text);
   return {numero,data,trades,fees,irrf:ir?num(ir[2]):0,irrfDT:irdt?num(irdt[1]):0,
@@ -529,8 +529,9 @@ const sanitize=s=>String(s).replace(/[^A-Za-z0-9_-]/g,"");
 function makeId(n){ return sanitize((n.numero||Math.random().toString(36).slice(2,8))+"_"+(n.data||"").replace(/-/g,"")) || Math.random().toString(36).slice(2,10); }
 
 /* ---------- custos e conferência ---------- */
-function feesTotal(f){ if(!f) return 0; if(f.total>0) return f.total;
-  return (f.liquidacao||0)+(f.registro||0)+(f.termo||0)+(f.ana||0)+(f.emolumentos||0)+(f.transf||0)+(f.corretagem||0)+(f.execucao||0)+(f.execCasa||0)+(f.custodia||0)+Math.max(f.iss||0,f.impostos||0)+(f.outras||0); }
+function feesTotal(f){ if(!f) return 0;
+  const soma=(f.liquidacao||0)+(f.registro||0)+(f.termo||0)+(f.ana||0)+(f.emolumentos||0)+(f.transf||0)+(f.corretagem||0)+(f.execucao||0)+(f.execCasa||0)+(f.custodia||0)+Math.max(f.iss||0,f.impostos||0)+(f.outras||0);
+  return soma>0?soma:(f.total||0); }
 function noteCost(n){ return (n.override!=null && n.override!=="") ? num(n.override) : feesTotal(n.fees); }
 function noteSums(n){ let C=0,V=0; for(const t of n.trades){ if(t.cv==="C") C+=+t.valor||0; else V+=+t.valor||0; } return {C,V}; }
 function noteCheck(n){
@@ -557,7 +558,7 @@ function compute(){
       const v=+t.valor||0, q=+t.qtd||0; if(!q) continue;
       const share=total?cost*v/total:0; const k=normKey(t.espec); const a=S.assets[k]||{};
       const id=assetId(t.espec); const tipo=a.tipo||guessTipo(t.espec,t.mercado);
-      const g=d[id]||(d[id]={Bq:0,Bc:0,Sq:0,Sn:0,Sg:0,tipo,espec:k});
+      const g=d[id]||(d[id]={Bq:0,Bc:0,Sq:0,Sn:0,Sg:0,tipo,espec:k,prazo:""}); if(t.prazo) g.prazo=t.prazo;
       if(t.cv==="C"){ g.Bq+=q; g.Bc+=v+share; } else { g.Sq+=q; g.Sn+=v-share; g.Sg+=v; }
     }
   }
@@ -566,7 +567,7 @@ function compute(){
     const y=+date.slice(0,4); if(curY!==null && y!==curY) snaps[curY]=clone(pos); curY=y;
     const m=M(date.slice(0,7));
     for(const [id,g] of Object.entries(days[date])){
-      const p=pos[id]||(pos[id]={q:0,cost:0,tipo:g.tipo,label:id}); p.tipo=g.tipo; p.espec=g.espec;
+      const p=pos[id]||(pos[id]={q:0,cost:0,tipo:g.tipo,label:id}); p.tipo=g.tipo; p.espec=g.espec; if(g.prazo) p.prazo=g.prazo;
       const dt=Math.min(g.Bq,g.Sq), pb=g.Bq?g.Bc/g.Bq:0, ps=g.Sq?g.Sn/g.Sq:0;
       if(dt>0){ const r=dt*(ps-pb); if(g.tipo==="fii") m.fii+=r; else m.dt+=r; m.ops.push({date,id,kind:"Day trade",q:dt,pm:pb,pv:ps,r,tipo:g.tipo}); }
       const rb=g.Bq-dt, rs=g.Sq-dt;
@@ -582,6 +583,8 @@ function compute(){
     }
   }
   if(curY!==null) snaps[curY]=clone(pos);
+  const expired=[]; const hoje=new Date().toISOString().slice(0,10);
+  for(const [id,p] of Object.entries(pos)){ if(p.tipo==="opcao" && p.q>0 && p.prazo){ const v=optExpiry(p.prazo); if(v && v<hoje) expired.push({id,q:p.q,cost:p.cost,date:v,espec:p.espec}); } }
   const prej={comum:num(S.prej.comum),dt:num(S.prej.dt),fii:num(S.prej.fii)};
   let acc=0, irrfS=0, lastY=null; const years={};
   for(const ym of Object.keys(months).sort()){
@@ -603,8 +606,9 @@ function compute(){
     Y.isento+=m.isento; Y.darf+=m.darf; Y.imposto+=m.imposto; Y.irrf+=m.irrf+m.irrfDT; Y.custos+=m.custos; Y.vendas+=m.vendasAcoes;
     Y.prej={...prej}; Y.acum=acc;
   }
-  return {months,snaps,initialSnap,warnings,years};
+  return {months,snaps,initialSnap,warnings,years,expired};
 }
+function optExpiry(prazo){ const m=String(prazo).match(/^(\d{2})\/(\d{2})$/); if(!m) return null; const mo=+m[1]-1, y=2000+(+m[2]); const d=new Date(y,mo,1); const add=(5-d.getDay()+7)%7; d.setDate(1+add+14); return `${y}-${String(mo+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function snapAt(y){ if(R.snaps[y]) return R.snaps[y]; const ys=Object.keys(R.snaps).map(Number).filter(v=>v<y).sort((a,b)=>b-a); return ys.length? R.snaps[ys[0]] : R.initialSnap; }
 function vencimento(ym){ let [y,m]=ym.split("-").map(Number); m+=1; if(m>12){m=1;y++;} const d=new Date(y,m,0); while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1); return d.toLocaleDateString("pt-BR"); }
 
@@ -690,6 +694,7 @@ function renderApuracao(){
   if(!yms.length){ el.innerHTML=`<div class="empty">Sem operações em ${year}. Importe notas ou escolha outro ano.</div>`; return; }
   if(!selMonth || !R.months[selMonth] || !selMonth.startsWith(year+"-")) selMonth=yms.find(k=>R.months[k].darf>0)||yms[yms.length-1];
   const warn=R.warnings.length?`<div class="warns"><b>Confira antes de usar os números</b><ul>${R.warnings.slice(0,8).map(w=>`<li>${esc(w)}</li>`).join("")}${R.warnings.length>8?`<li>e mais ${R.warnings.length-8} aviso(s)</li>`:""}</ul></div>`:"";
+  const expBox=R.expired.length?`<div class="warns"><b>Opções vencidas ainda em carteira</b><ul>${R.expired.map(x=>`<li>${qf(x.q)} ${esc(x.id)} venceram em ${fmtDate(x.date)} (custo ${brl(x.cost)}). Se viraram pó, registre o vencimento para lançar o prejuízo. Se foram exercidas, lance o exercício como nota manual. <button class="btn sm" data-act="expire" data-id="${esc(x.id)}">Registrar vencimento sem exercício</button></li>`).join("")}</ul></div>`:"";
   const m=R.months[selMonth], [yy,mm]=selMonth.split("-");
   const lg=(l,v,c="")=>`<tr><td>${l}</td><td class="${c}">${v}</td></tr>`;
   const detail=`<div class="detail"><div>
@@ -725,7 +730,7 @@ function renderApuracao(){
     <div><small>Prejuízo para o próximo ano</small><b>${brl(Y.prej.comum+Y.prej.dt+Y.prej.fii)}</b><p>Comum ${brl(Y.prej.comum)}, day trade ${brl(Y.prej.dt)}, FII ${brl(Y.prej.fii)}</p></div>
   </div>`;
   const rows=yms.map(k=>{ const x=R.months[k]; return `<tr class="click ${k===selMonth?"sel":""}" data-act="month" data-ym="${k}"><td>${MESES[+k.slice(5)-1]}</td><td class="r">${brl(x.vendasAcoes)}</td><td class="r">${x.isento?brl(x.isento):"—"}</td><td class="r ${cls(x.res.comum)}">${brl(x.res.comum)}</td><td class="r ${cls(x.res.dt)}">${brl(x.res.dt)}</td><td class="r ${cls(x.res.fii)}">${brl(x.res.fii)}</td><td class="r">${brl(x.custos)}</td><td class="r">${brl(x.imposto)}</td><td class="r">${brl(x.irrf+x.irrfDT)}</td><td class="r"><b>${x.darf?brl(x.darf):"—"}</b></td></tr>`; }).join("");
-  el.innerHTML=warn+detail+sum+`<div class="toolbar"><h3 style="margin:0">Mês a mês</h3><button class="btn sm" data-act="csv">Baixar CSV da apuração</button></div>
+  el.innerHTML=expBox+warn+detail+sum+`<div class="toolbar"><h3 style="margin:0">Mês a mês</h3><button class="btn sm" data-act="csv">Baixar CSV da apuração</button></div>
     <div class="scroll"><table><thead><tr><th>Mês</th><th class="r">Vendas ações</th><th class="r">Isento</th><th class="r">Comum</th><th class="r">Day trade</th><th class="r">FII</th><th class="r">Custos</th><th class="r">Imposto</th><th class="r">IRRF</th><th class="r">DARF</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function discr(id,p){ const pm=p.q?p.cost/p.q:0; const un=p.tipo==="fii"||p.tipo==="etf"?"cotas":p.tipo==="bdr"?"BDRs":p.tipo==="opcao"?"opções":"ações"; return `${qf(p.q)} ${un} de ${id}, custo médio de ${brl(pm)} por unidade. Custodiadas na Necton Investimentos.`; }
@@ -872,6 +877,9 @@ document.addEventListener("click",async e=>{
     if(openNotes.has(id)){ openNotes.delete(id); body.hidden=true; body.innerHTML=""; b.setAttribute("aria-expanded","false"); }
     else { openNotes.add(id); body.innerHTML=noteBody(findNote(id)); body.hidden=false; b.setAttribute("aria-expanded","true"); } }
   else if(act==="month"){ selMonth=b.dataset.ym; showTab("apuracao"); renderCarne(); renderApuracao(); }
+  else if(act==="expire"){ const x=R.expired.find(e=>e.id===b.dataset.id); if(!x) return;
+    const n={id:"v"+sanitize(x.id)+"_"+x.date.replace(/-/g,""),numero:"VENC",data:x.date,trades:[{cv:"V",mercado:"OPCAO DE COMPRA",prazo:"",espec:x.espec,qtd:x.q,preco:0,valor:0}],fees:{},irrf:0,irrfDT:0,liquido:null,override:0,fileName:"Vencimento de opção sem exercício"};
+    if(S.notes.some(y=>y.id===n.id)) return; S.notes.push(n); Store.saveNote(n); refresh(); }
   else if(act==="addNote"){ const n={id:"m"+Date.now().toString(36),numero:"",data:new Date().toISOString().slice(0,10),trades:[{cv:"C",mercado:"VISTA",espec:"",qtd:0,preco:0,valor:0}],fees:{},irrf:0,irrfDT:0,liquido:null,override:0,fileName:""}; S.notes.push(n); openNotes.add(n.id); Store.saveNote(n); refresh(); }
   else if(act==="addTrade"){ const n=findNote(b.dataset.note); n.trades.push({cv:"C",mercado:"VISTA",espec:"",qtd:0,preco:0,valor:0}); Store.saveNote(n); refresh(); }
   else if(act==="delTrade"){ const n=findNote(b.dataset.note); n.trades.splice(+b.dataset.i,1); Store.saveNote(n); refresh(); }
