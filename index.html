@@ -441,6 +441,7 @@ function guessTicker(espec){ const tk=String(espec||"").toUpperCase().split(/\s+
 function guessTipo(espec,mercado){
   const e=String(espec||"").toUpperCase();
   if(/^OPCAO/.test(mercado||"")) return "opcao";
+  if(e.split(/\s+/).some(t=>/^[A-Z]{4}[A-X]\d{1,3}(W[1-5])?E?$/.test(t))) return "opcao";
   if(e.split(/\s+/).some(t=>ETF_RF.test(t))) return "etfrf";
   if(/\bFII\b/.test(e)) return "fii";
   if(/\bDRN?\d?\b/.test(e)) return "bdr";
@@ -677,6 +678,7 @@ function noteBody(n){
     <td style="width:90px"><input class="num" type="text" inputmode="decimal" data-note="${n.id}" data-i="${i}" data-f="t.qtd" value="${qf(t.qtd)}"></td>
     <td style="width:110px"><input class="num" type="text" inputmode="decimal" data-note="${n.id}" data-i="${i}" data-f="t.preco" value="${n2(t.preco)}"></td>
     <td style="width:130px"><input class="num" type="text" inputmode="decimal" data-note="${n.id}" data-i="${i}" data-f="t.valor" value="${n2(t.valor)}"></td>
+    <td style="width:60px"><input class="txt" type="text" data-note="${n.id}" data-i="${i}" data-f="t.obs" value="${esc(t.obs||"")}" placeholder="—" title="Obs. da nota: D = day trade"></td>
     <td><button class="btn sm del" data-act="delTrade" data-note="${n.id}" data-i="${i}" aria-label="Remover operação">Remover</button></td></tr>`).join("");
   const br=Object.entries(n.fees||{}).filter(([k,v])=>k!=="total"&&v>0).map(([k,v])=>`${FEE_NAMES[k]} ${n2(v)}`).join(", ");
   return `<div class="row" style="margin-bottom:12px">
@@ -684,7 +686,7 @@ function noteBody(n){
       <label>Nº da nota <input type="text" style="width:120px" data-note="${n.id}" data-f="numero" value="${esc(n.numero)}"></label>
       ${n.fileName?`<span class="mut" style="font-size:.85rem">${esc(n.fileName)}</span>`:""}
     </div>
-    <div class="scroll"><table><thead><tr><th>C/V</th><th>Especificação do título</th><th>Ativo</th><th class="r">Qtd</th><th class="r">Preço</th><th class="r">Valor</th><th></th></tr></thead><tbody>${rows||`<tr><td colspan="7" class="mut">Nenhuma operação. Adicione abaixo.</td></tr>`}</tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>C/V</th><th>Especificação do título</th><th>Ativo</th><th class="r">Qtd</th><th class="r">Preço</th><th class="r">Valor</th><th title="Coluna Obs. da nota: D = day trade">Obs.</th><th></th></tr></thead><tbody>${rows||`<tr><td colspan="8" class="mut">Nenhuma operação. Adicione abaixo.</td></tr>`}</tbody></table></div>
     <div class="row" style="margin-top:10px"><button class="btn sm" data-act="addTrade" data-note="${n.id}">Adicionar operação</button></div>
     <div class="fees">
       <label>Custos totais da nota (R$)<input class="num" type="text" inputmode="decimal" data-note="${n.id}" data-f="override" placeholder="${n2(feesTotal(n.fees))}" value="${n.override!=null&&n.override!==""?n2(num(n.override)):""}"></label>
@@ -846,7 +848,7 @@ document.addEventListener("change",e=>{
     const n=findNote(t.dataset.note); if(!n) return;
     if(f.startsWith("t.")){
       const tr=n.trades[+t.dataset.i], k=f.slice(2);
-      if(k==="cv"||k==="espec") tr[k]=k==="cv"?t.value:t.value.trim().toUpperCase();
+      if(k==="cv"||k==="espec"||k==="obs") tr[k]=k==="cv"?t.value:t.value.trim().toUpperCase();
       else if(k==="qtd"){ tr.qtd=qnum(t.value); tr.valor=+(tr.qtd*tr.preco).toFixed(2); }
       else if(k==="preco"){ tr.preco=num(t.value); tr.valor=+(tr.qtd*tr.preco).toFixed(2); }
       else tr.valor=num(t.value);
