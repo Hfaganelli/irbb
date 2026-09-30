@@ -394,6 +394,7 @@ const Store={state:"init",token:null,tokenExp:0,fileId:null,known:null,key:null,
   saveCfg(){ this.save(); }, saveNote(){ this.save(); }, delNote(){ this.save(); }
 };
 window.addEventListener("beforeunload",e=>{ if(Store.dirty){ e.preventDefault(); e.returnValue=""; } });
+const cfgObj=()=>({assets:S.assets,inicial:S.inicial,prej:S.prej});
 const dataObj=()=>({...cfgObj(),notes:S.notes});
 function applyData(o){
   if(!o) return 0;
